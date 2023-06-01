@@ -130,6 +130,8 @@ class ConstantLengthDataset(IterableDataset):
         iterator = iter(self.dataset)
         more_examples = True
         while more_examples:
+            # obtain buffer where each element contains code as text
+            # buffer_len is the total length (in characters) of all buffer elements combined
             buffer, buffer_len = [], 0
             while True:
                 if buffer_len >= self.max_buffer_size:
@@ -143,11 +145,19 @@ class ConstantLengthDataset(IterableDataset):
                     else:
                         more_examples = False
                         break
-            tokenized_inputs = self.tokenizer(buffer, truncation=False)["input_ids"]
-            all_token_ids = []
 
+            # tokenize the buffer elements
+            tokenized_inputs = self.tokenizer(buffer, truncation=False)["input_ids"]
+
+            # for each buffer element, either
+            #    * use the tokens directly or
+            #    * (with some probability) use a transformed version for the fill in the middle (FIM) task
+            #      (by selecting two random split points to split the sequence into prefix, middle and suffix,
+            #      adding separator tokens in between)
+            all_token_ids = []
             np_rng = np.random.RandomState(seed=self.seed)
             for tokenized_input in tokenized_inputs:
+
                 # optionally do FIM permutations
                 if self.fim_rate > 0:
                     tokenized_input, np_rng = fim.permute(
@@ -161,8 +171,9 @@ class ConstantLengthDataset(IterableDataset):
                         fim_spm_rate=self.fim_spm_rate,
                         truncate_or_pad=False,
                     )
-
                 all_token_ids.extend(tokenized_input + [self.concat_token_id])
+
+            # extract (non-overlapping) subsequences of length seq_length from all_token_ids
             examples = []
             for i in range(0, len(all_token_ids), self.seq_length):
                 input_ids = all_token_ids[i : i + self.seq_length]
