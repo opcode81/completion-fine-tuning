@@ -1,0 +1,13 @@
+name: completion_ft
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.0.1
+  - pytorch-cuda=11.7
+  - pip:
+      - -r requirements.txt
