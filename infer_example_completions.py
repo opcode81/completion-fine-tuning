@@ -6,7 +6,7 @@ from typing import Dict, List
 import re
 
 import torch
-from transformers import pipeline, AutoTokenizer
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
 log = logging.getLogger(__name__)
 
@@ -71,13 +71,13 @@ def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
     return tasks
 
 
-def run(models: List[str], lang_id: str, device="cuda:0"):
+def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder"):
     tasks = read_completion_tasks(lang_id)
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
 
     for model_id in models:
 
         log.info(f"Loading model {model_id}")
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
         pipe = pipeline("text-generation", model=model_id, max_new_tokens=256, device=device,
             torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
@@ -88,10 +88,12 @@ def run(models: List[str], lang_id: str, device="cuda:0"):
             task.apply_completion(response)
             log.info(f"Completion for {task_name} by {model_id}:\n{task.full_code()}")
 
+        del pipe
+
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    run(models=["bigcode/santacoder"], lang_id="ruby")
+    run(models=["checkpoints/checkpoint-50", "bigcode/santacoder"], lang_id="ruby")
     log.info("Done")
