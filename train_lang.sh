@@ -18,4 +18,4 @@ python train.py \
         --no_fp16 \
         --fim_rate 0.5 \
         --fim_spm_rate 0.5 \
-  2>&1 | tee train_"$LANGUAGE_""$DATE".log
+  2>&1 | tee "train_${LANGUAGE}_${DATE}".log
