@@ -12,10 +12,10 @@ python train.py \
         --learning_rate 5e-5 \
         --num_warmup_steps 500 \
         --eval_freq 500 \
-        --save_freq 50 \
+        --save_freq 1000 \
         --log_freq 1 \
         --num_workers="$(nproc)" \
         --no_fp16 \
         --fim_rate 0.5 \
         --fim_spm_rate 0.5 \
-  2>&1 | tee train_$LANGUAGE_$DATE.log
+  2>&1 | tee train_"$LANGUAGE_""$DATE".log
