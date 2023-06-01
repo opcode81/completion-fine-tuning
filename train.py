@@ -5,6 +5,8 @@ Fine-Tune SantaCoder on code/text dataset
 import argparse
 import os
 import random
+import sys
+import logging
 
 import numpy as np
 import torch
@@ -17,11 +19,13 @@ from transformers import (
     AutoTokenizer,
     Trainer,
     TrainingArguments,
-    logging,
+    logging as tflogging,
     set_seed,
 )
 
 import fim
+
+log = logging.getLogger(__name__)
 
 
 def get_args():
@@ -187,6 +191,7 @@ class ConstantLengthDataset(IterableDataset):
                         "labels": torch.LongTensor(example),
                     }
 
+
 def create_datasets(tokenizer, args):
     dataset = load_dataset(
         args.dataset_name,
@@ -209,7 +214,7 @@ def create_datasets(tokenizer, args):
             f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}"
         )
     chars_per_token = chars_token_ratio(train_data, tokenizer, args.data_column)
-    print(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
+    log.info(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
     train_dataset = ConstantLengthDataset(
         tokenizer,
         train_data,
@@ -237,7 +242,7 @@ def create_datasets(tokenizer, args):
 
 
 def run_training(args, train_data, val_data):
-    print("Loading the model")
+    log.info("Loading the model")
     # disable caching mechanism when using gradient checkpointing
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
@@ -246,7 +251,7 @@ def run_training(args, train_data, val_data):
     )
     train_data.start_iteration = 0
 
-    print(f"Starting main loop")
+    log.info(f"Starting main loop")
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -256,6 +261,7 @@ def run_training(args, train_data, val_data):
         eval_steps=args.eval_freq,
         save_steps=args.save_freq,
         logging_steps=args.log_freq,
+        log_level="debug",
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
@@ -267,17 +273,17 @@ def run_training(args, train_data, val_data):
         bf16=args.bf16,
         weight_decay=args.weight_decay,
         run_name=f"santacoder-{args.subset}",
-        report_to="wandb",
+        report_to="mlflow",
     )
 
     trainer = Trainer(
         model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data
     )
 
-    print("Training...")
+    log.info("Training...")
     trainer.train()
 
-    print("Saving last checkpoint of the model")
+    log.info("Saving last checkpoint of the model")
     model.save_pretrained(os.path.join(args.output_dir, "final_checkpoint/"))
 
 
@@ -290,10 +296,13 @@ def main(args):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
+        level=logging.INFO)
+
     args = get_args()
     set_seed(args.seed)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    logging.set_verbosity_error()
+    tflogging.set_verbosity_info()
 
     main(args)

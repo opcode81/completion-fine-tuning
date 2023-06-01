@@ -11,3 +11,4 @@ dependencies:
   - pytorch-cuda=11.7
   - pip:
       - -r requirements.txt
+      - mlflow==2.3.2
