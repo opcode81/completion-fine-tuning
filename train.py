@@ -281,7 +281,7 @@ def run_training(args, train_data, val_data):
     )
 
     log.info("Training...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=True)
 
     log.info("Saving last checkpoint of the model")
     model.save_pretrained(os.path.join(args.output_dir, "final_checkpoint/"))
