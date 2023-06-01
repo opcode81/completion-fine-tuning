@@ -2,7 +2,7 @@ DATE=$(date +'%Y%m%d-%H%M')
 python train.py \
         --model_path="bigcode/santacoder" \
         --dataset_name="bigcode/the-stack-dedup" \
-        --subset="data/ruby" \
+        --subset="data/${LANGUAGE}" \
         --data_column "content" \
         --split="train" \
         --seq_length 2048 \
@@ -16,5 +16,6 @@ python train.py \
         --log_freq 1 \
         --num_workers="$(nproc)" \
         --no_fp16 \
-        --fim_rate 0.5
-#  2>&1 | tee train_ruby_$DATE.log
+        --fim_rate 0.5 \
+        --fim_spm_rate 0.5 \
+  2>&1 | tee train_$LANGUAGE_$DATE.log
