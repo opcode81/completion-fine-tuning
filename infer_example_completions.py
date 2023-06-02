@@ -71,6 +71,7 @@ def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
     return tasks
 
 
+# TODO: Split into pure and side effect functions.
 def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder"):
     tasks = read_completion_tasks(lang_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
