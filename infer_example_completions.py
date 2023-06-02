@@ -94,6 +94,7 @@ def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode
 
             log.info(f"Completion for {task_name} by {model_id}:\n{response_code}")
             task_path = model_path / task_name
+            task_path.parent.mkdir(exist_ok=True, parents=True)
             with open(task_path, "w") as f:
                 f.write(response_code)
         del pipe
