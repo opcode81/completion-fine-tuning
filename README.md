@@ -25,11 +25,10 @@ Second, install the required packages. The packages are listed in the `requireme
 pip install -r requirements.txt
 ```
 
-Third, make sure you are logged to HuggingFace Hub and Weights & Biases
+Third, make sure you are logged to HuggingFace Hub
 
 ```
 huggingface-cli login
-wandb login
 ```
 
 2. Next, take a look at the `train.py` script to get an understanding of how it works. In short, the script does the following:
