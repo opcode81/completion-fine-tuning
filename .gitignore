@@ -2,6 +2,8 @@
 /.idea
 /__pycache__
 /mlruns
+/temp*
+/results
 /wandb
 
 *.log
