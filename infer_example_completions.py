@@ -6,7 +6,7 @@ from typing import Dict, List
 import re
 
 import torch
-from transformers import pipeline, AutoTokenizer
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
 log = logging.getLogger(__name__)
 
@@ -71,32 +71,23 @@ def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
     return tasks
 
 
-# TODO: Split into pure and side effect functions.
 def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder"):
     tasks = read_completion_tasks(lang_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
 
-    root = Path("outputs") / "completion-results" / lang_id
     for model_id in models:
 
         log.info(f"Loading model {model_id}")
         pipe = pipeline("text-generation", model=model_id, max_new_tokens=256, device=device,
             torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
-        model_path = root / model_id
-
         for task_name, task in tasks.items():
             log.info(f"Querying {model_id} for completion {task_name}")
             prompt = task.fim_prompt()
             response = pipe(prompt)[0]["generated_text"]
             task.apply_completion(response)
-            response_code = task.full_code()
+            log.info(f"Completion for {task_name} by {model_id}:\n{task.full_code()}")
 
-            log.info(f"Completion for {task_name} by {model_id}:\n{response_code}")
-            task_path = model_path / task_name
-            task_path.parent.mkdir(exist_ok=True, parents=True)
-            with open(task_path, "w") as f:
-                f.write(response_code)
         del pipe
 
 
