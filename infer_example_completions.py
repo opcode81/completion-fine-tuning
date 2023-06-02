@@ -1,4 +1,3 @@
-import argparse
 import logging
 import os
 import sys
@@ -19,13 +18,6 @@ TAG_FIM_MIDDLE = "<fim-middle>"
 
 re_todo_tag = re.compile(re.escape(TAG_COMPLETION_PLACEHOLDER))
 re_fim_middle = re.compile(re.escape(TAG_FIM_MIDDLE))
-
-
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--models", type=str, default="bigcode/santacoder")
-    parser.add_argument("--lang_id", type=str)
-    return parser.parse_args()
 
 
 class CompletionTask:
@@ -112,7 +104,5 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    args = get_args()
-    models_list = args.models.split(",")
-    run(models=models_list, lang_id=args.lang_id)
+    run(models=["bigcode/santacoder"], lang_id="c-sharp")
     log.info("Done")
