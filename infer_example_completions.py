@@ -60,6 +60,9 @@ class CompletionTask:
     def full_code(self) -> str:
         return self.prefix + self.middle + self.suffix
 
+    def code_with_todo_tag(self) -> str:
+        return self.prefix + TAG_COMPLETION_PLACEHOLDER + self.suffix
+
 
 def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
     tasks = {}
@@ -71,9 +74,22 @@ def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
     return tasks
 
 
-def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder"):
+def model_id_to_fn(model_id: str):
+    return model_id.replace("/", "--")
+
+
+def model_id_from_fn(model_fn: str):
+    return model_fn.replace("--", "/")
+
+
+def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder", save_results=True):
     tasks = read_completion_tasks(lang_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
+
+    def result_dir(task_name):
+        outdir = Path("results") / "completion-tasks" / lang_id / task_name
+        outdir.mkdir(parents=True, exist_ok=True)
+        return outdir
 
     for model_id in models:
 
@@ -82,11 +98,21 @@ def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode
             torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
         for task_name, task in tasks.items():
+            ext = os.path.splitext(task_name)[1]
+            if save_results:
+                with open(result_dir(task_name) / f"task{ext}", 'w') as f:
+                    f.write(task.code_with_todo_tag())
+
             log.info(f"Querying {model_id} for completion {task_name}")
             prompt = task.fim_prompt()
             response = pipe(prompt)[0]["generated_text"]
             task.apply_completion(response)
             log.info(f"Completion for {task_name} by {model_id}:\n{task.full_code()}")
+
+            if save_results:
+                fn = model_id_to_fn(model_id) + ext
+                with open(result_dir(task_name) / fn, 'w') as f:
+                    f.write(task.full_code())
 
         del pipe
 
@@ -95,5 +121,5 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    run(models=["checkpoints/checkpoint-50", "bigcode/santacoder"], lang_id="ruby")
+    run(models=["checkpoints/checkpoint-550", "bigcode/santacoder"], lang_id="ruby")
     log.info("Done")
