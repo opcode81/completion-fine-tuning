@@ -260,6 +260,7 @@ def run_training(args, train_data, val_data):
         max_steps=args.max_steps,
         eval_steps=args.eval_freq,
         save_steps=args.save_freq,
+        save_total_limit=1,
         logging_steps=args.log_freq,
         log_level="debug",
         per_device_train_batch_size=args.batch_size,
