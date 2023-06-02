@@ -1,1 +1,8 @@
+/checkpoint*
 /.idea
+/__pycache__
+/mlruns
+/wandb
+
+*.log
+
