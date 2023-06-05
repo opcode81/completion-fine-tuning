@@ -121,6 +121,6 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    # run(models=["checkpoints/checkpoint-550", "bigcode/santacoder"], lang_id="ruby")
-    run(models=["bigcode/santacoder"], lang_id="c-sharp")
+    run(models=["checkpoints/checkpoint-6000", "checkpoints/checkpoint-500", "bigcode/santacoder"], lang_id="ruby")
+    # run(models=["bigcode/santacoder"], lang_id="c-sharp")
     log.info("Done")
