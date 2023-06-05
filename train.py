@@ -22,7 +22,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     logging as tflogging,
-    set_seed,
+    set_seed, PrinterCallback, TrainerState,
 )
 import peft
 
@@ -249,6 +249,13 @@ def create_datasets(tokenizer, cfg: FineTuningConfiguration):
     return train_dataset, valid_dataset
 
 
+class LoggingCallback(PrinterCallback):
+    def on_log(self, args, state: TrainerState, control, logs=None, **kwargs):
+        _ = logs.pop("total_flos", None)
+        if state.is_local_process_zero:
+            log.info(f"Step {state.global_step}: {logs}")
+
+
 def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     log.info("Loading the model")
     # disable caching mechanism when using gradient checkpointing
@@ -298,10 +305,12 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
         weight_decay=cfg.weight_decay,
         run_name=run_name,
         report_to=["mlflow"],
+        disable_tqdm=True
     )
 
     trainer = Trainer(
-        model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data
+        model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data,
+        callbacks=[LoggingCallback()]
     )
 
     log.info("Training...")
