@@ -7,11 +7,13 @@ import os
 import random
 import sys
 from dataclasses import dataclass
+from typing import Optional, List
 
 import jsonargparse
 import numpy as np
 import torch
 from datasets import load_dataset
+from peft import TaskType
 from torch.utils.data import IterableDataset
 from tqdm import tqdm
 from transformers import (
@@ -22,6 +24,7 @@ from transformers import (
     logging as tflogging,
     set_seed,
 )
+import peft
 
 import fim
 
@@ -59,6 +62,11 @@ class FineTuningConfiguration:
     save_freq: int = 1000
     fim_rate: float = 0
     fim_spm_rate: float = 0
+    use_lora: bool = False
+    lora_r: int = 8
+    lora_alpha: int = 8
+    lora_target_modules: Optional[List[str]] = None
+    lora_dropout = 0.1
 
 
 def chars_token_ratio(dataset, tokenizer, data_column, nb_examples=400):
@@ -250,6 +258,21 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     )
     train_data.start_iteration = 0
 
+    run_name = f"santacoder-{cfg.subset}"
+
+    if cfg.use_lora:
+        run_name += "-lora"
+        peft_cfg = peft.LoraConfig(
+            target_modules=cfg.lora_target_modules,
+            task_type=TaskType.CAUSAL_LM,
+            inference_mode=False,
+            r=cfg.lora_r,
+            lora_alpha=cfg.lora_alpha,
+            lora_dropout=cfg.lora_dropout,
+        )
+        model = peft.get_peft_model(model, peft_cfg)
+        model.print_trainable_parameters()
+
     log.info(f"Starting main loop")
 
     training_args = TrainingArguments(
@@ -272,8 +295,8 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
         fp16=cfg.fp16,
         bf16=cfg.bf16,
         weight_decay=cfg.weight_decay,
-        run_name=f"santacoder-{cfg.subset}",
-        report_to="mlflow",
+        run_name=run_name,
+        report_to=["mlflow"],
     )
 
     trainer = Trainer(
@@ -287,22 +310,21 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     model.save_pretrained(os.path.join(cfg.output_dir, "final_checkpoint/"))
 
 
-def main(args: FineTuningConfiguration):
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_auth_token=True)
-
-    train_dataset, eval_dataset = create_datasets(tokenizer, args)
-
-    run_training(args, train_dataset, eval_dataset)
-
-
-if __name__ == "__main__":
-    logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
-        level=logging.INFO)
-
-    cfg = jsonargparse.CLI(FineTuningConfiguration, as_positional=False)
+def main(cfg: FineTuningConfiguration):
     set_seed(cfg.seed)
     os.makedirs(cfg.output_dir, exist_ok=True)
 
     tflogging.set_verbosity_info()
 
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model_path, use_auth_token=True)
+
+    train_dataset, eval_dataset = create_datasets(tokenizer, cfg)
+
+    run_training(cfg, train_dataset, eval_dataset)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
+        level=logging.INFO)
+    cfg = jsonargparse.CLI(FineTuningConfiguration, as_positional=False)
     main(cfg)

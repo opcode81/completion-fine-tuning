@@ -13,3 +13,4 @@ dependencies:
       - -r requirements.txt
       - mlflow==2.3.2
       - jsonargparse==4.21.1
+      - peft==0.3.0
