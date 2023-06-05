@@ -57,6 +57,7 @@ class FineTuningConfiguration:
     seed: int = 0
     num_workers: int = None
     output_dir: str = "./checkpoints"
+    resume_from_checkpoint: bool = False
     log_freq: int = 1
     eval_freq: int = 1000
     save_freq: int = 1000
@@ -304,7 +305,7 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     )
 
     log.info("Training...")
-    trainer.train(resume_from_checkpoint=True)
+    trainer.train(resume_from_checkpoint=cfg.resume_from_checkpoint)
 
     log.info("Saving last checkpoint of the model")
     model.save_pretrained(os.path.join(cfg.output_dir, "final_checkpoint/"))
