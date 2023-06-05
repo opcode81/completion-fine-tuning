@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 def run_finetuning_santacoder_thestack(lang_id,
         max_steps=30000,
         eval_freq=500,
-        save_freq=1000,
+        save_freq=500,
         log_freq=1,
         fim_rate=0.5,
         fim_spm_rate=0.5,
