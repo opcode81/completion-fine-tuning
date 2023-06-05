@@ -2,17 +2,17 @@
 Fine-Tune SantaCoder on code/text dataset
 """
 
-import argparse
+import logging
 import os
 import random
 import sys
-import logging
+from dataclasses import dataclass
 
+import jsonargparse
 import numpy as np
 import torch
 from datasets import load_dataset
 from torch.utils.data import IterableDataset
-from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 from transformers import (
     AutoModelForCausalLM,
@@ -28,42 +28,37 @@ import fim
 log = logging.getLogger(__name__)
 
 
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, default="bigcode/santacoder")
-    parser.add_argument("--dataset_name", type=str, default="bigcode/the-stack-dedup")
-    parser.add_argument("--subset", type=str, default="data")
-    parser.add_argument("--split", type=str, default="train")
-    parser.add_argument("--size_valid_set", type=int, default=4000)
-    parser.add_argument("--streaming", action="store_true")
-    parser.add_argument("--shuffle_buffer", type=int, default=5000)
-    parser.add_argument("--data_column", type=str, default="content")
-
-    parser.add_argument("--seq_length", type=int, default=1024)
-    parser.add_argument("--max_steps", type=int, default=10000)
-    parser.add_argument("--batch_size", type=int, default=2)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=8)
-    parser.add_argument("--eos_token_id", type=int, default=49152)
-
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
-    parser.add_argument("--lr_scheduler_type", type=str, default="cosine")
-    parser.add_argument("--num_warmup_steps", type=int, default=100)
-    parser.add_argument("--weight_decay", type=float, default=0.05)
-
-    parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--no_fp16", action="store_false")
-    parser.add_argument("--bf16", action="store_true")
-    parser.add_argument("--no_gradient_checkpointing", action="store_false")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_workers", type=int, default=None)
-    parser.add_argument("--output_dir", type=str, default="./checkpoints")
-    parser.add_argument("--log_freq", default=1, type=int)
-    parser.add_argument("--eval_freq", default=1000, type=int)
-    parser.add_argument("--save_freq", default=1000, type=int)
-
-    parser.add_argument("--fim_rate", type=float, default=0)
-    parser.add_argument("--fim_spm_rate", type=float, default=0)
-    return parser.parse_args()
+@dataclass
+class FineTuningConfiguration:
+    model_path: str = "bigcode/santacoder"
+    dataset_name: str = "bigcode/the-stack-dedup"
+    subset: str = "data"
+    split: str = "train"
+    size_valid_set: int = 4000
+    streaming: bool = False
+    shuffle_buffer: int = 5000
+    data_column: str = "content"
+    seq_length: int = 1024
+    max_steps: int = 10000
+    batch_size: int = 2
+    gradient_accumulation_steps: int = 8
+    eos_token_id: int = 49152
+    learning_rate: float = 5e-5
+    lr_scheduler_type: str = "cosine"
+    num_warmup_steps: int = 100
+    weight_decay: float = 0.05
+    local_rank: int = 0
+    fp16: bool = True
+    bf16: bool = False
+    gradient_checkpointing: bool = True
+    seed: int = 0
+    num_workers: int = None
+    output_dir: str = "./checkpoints"
+    log_freq: int = 1
+    eval_freq: int = 1000
+    save_freq: int = 1000
+    fim_rate: float = 0
+    fim_spm_rate: float = 0
 
 
 def chars_token_ratio(dataset, tokenizer, data_column, nb_examples=400):
@@ -82,6 +77,7 @@ class ConstantLengthDataset(IterableDataset):
     """
     Iterable dataset that returns constant length chunks of tokens from stream of text files.
         Args:
+            cfg (FineTuningConfiguration): the configuration
             tokenizer (Tokenizer): The processor used for proccessing the data.
             dataset (dataset.Dataset): Dataset with text files.
             infinite (bool): If True the iterator is reset after dataset reaches end else stops.
@@ -95,6 +91,7 @@ class ConstantLengthDataset(IterableDataset):
 
     def __init__(
         self,
+        cfg: FineTuningConfiguration,
         tokenizer,
         dataset,
         infinite=False,
@@ -108,7 +105,7 @@ class ConstantLengthDataset(IterableDataset):
     ):
         self.tokenizer = tokenizer
         self.concat_token_id = (
-            tokenizer.eos_token_id if tokenizer.eos_token_id else args.eos_token_id
+            tokenizer.eos_token_id if tokenizer.eos_token_id else cfg.eos_token_id
         )
         self.dataset = dataset
         self.seq_length = seq_length
@@ -192,88 +189,90 @@ class ConstantLengthDataset(IterableDataset):
                     }
 
 
-def create_datasets(tokenizer, args):
+def create_datasets(tokenizer, cfg: FineTuningConfiguration):
     dataset = load_dataset(
-        args.dataset_name,
-        data_dir=args.subset,
-        split=args.split,
+        cfg.dataset_name,
+        data_dir=cfg.subset,
+        split=cfg.split,
         use_auth_token=True,
-        num_proc=args.num_workers if not args.streaming else None,
-        streaming=args.streaming,
+        num_proc=cfg.num_workers if not cfg.streaming else None,
+        streaming=cfg.streaming,
     )
-    if args.streaming:
+    if cfg.streaming:
         print("Loading the dataset in streaming mode")
-        valid_data = dataset.take(args.size_valid_set)
-        train_data = dataset.skip(args.size_valid_set)
-        train_data = train_data.shuffle(buffer_size=args.shuffle_buffer, seed=args.seed)
+        valid_data = dataset.take(cfg.size_valid_set)
+        train_data = dataset.skip(cfg.size_valid_set)
+        train_data = train_data.shuffle(buffer_size=cfg.shuffle_buffer, seed=cfg.seed)
     else:
-        dataset = dataset.train_test_split(test_size=0.005, seed=args.seed)
+        dataset = dataset.train_test_split(test_size=0.005, seed=cfg.seed)
         train_data = dataset["train"]
         valid_data = dataset["test"]
         print(
             f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}"
         )
-    chars_per_token = chars_token_ratio(train_data, tokenizer, args.data_column)
+    chars_per_token = chars_token_ratio(train_data, tokenizer, cfg.data_column)
     log.info(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
     train_dataset = ConstantLengthDataset(
+        cfg,
         tokenizer,
         train_data,
         infinite=True,
-        seq_length=args.seq_length,
+        seq_length=cfg.seq_length,
         chars_per_token=chars_per_token,
-        content_field=args.data_column,
-        fim_rate=args.fim_rate,
-        fim_spm_rate=args.fim_spm_rate,
-        seed=args.seed,
+        content_field=cfg.data_column,
+        fim_rate=cfg.fim_rate,
+        fim_spm_rate=cfg.fim_spm_rate,
+        seed=cfg.seed,
     )
     valid_dataset = ConstantLengthDataset(
+        cfg,
         tokenizer,
         valid_data,
         infinite=False,
-        seq_length=args.seq_length,
+        seq_length=cfg.seq_length,
         chars_per_token=chars_per_token,
-        content_field=args.data_column,
-        fim_rate=args.fim_rate,
-        fim_spm_rate=args.fim_spm_rate,
-        seed=args.seed,
+        content_field=cfg.data_column,
+        fim_rate=cfg.fim_rate,
+        fim_spm_rate=cfg.fim_spm_rate,
+        seed=cfg.seed,
     )
 
     return train_dataset, valid_dataset
 
 
-def run_training(args, train_data, val_data):
+def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     log.info("Loading the model")
     # disable caching mechanism when using gradient checkpointing
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_path,
+        cfg.model_path,
         trust_remote_code=True,
-        use_cache=not args.no_gradient_checkpointing,
+        use_cache=not cfg.gradient_checkpointing,
     )
     train_data.start_iteration = 0
 
     log.info(f"Starting main loop")
 
     training_args = TrainingArguments(
-        output_dir=args.output_dir,
+        output_dir=cfg.output_dir,
         dataloader_drop_last=True,
         evaluation_strategy="steps",
-        max_steps=args.max_steps,
-        eval_steps=args.eval_freq,
-        save_steps=args.save_freq,
+        max_steps=cfg.max_steps,
+        eval_steps=cfg.eval_freq,
+        save_steps=cfg.save_freq,
         save_total_limit=None,
-        logging_steps=args.log_freq,
+        logging_steps=cfg.log_freq,
         log_level="debug",
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        lr_scheduler_type=args.lr_scheduler_type,
-        warmup_steps=args.num_warmup_steps,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        gradient_checkpointing=args.no_gradient_checkpointing,
-        fp16=args.no_fp16,
-        bf16=args.bf16,
-        weight_decay=args.weight_decay,
-        run_name=f"santacoder-{args.subset}",
+        per_device_train_batch_size=cfg.batch_size,
+        per_device_eval_batch_size=cfg.batch_size,
+        learning_rate=cfg.learning_rate,
+        lr_scheduler_type=cfg.lr_scheduler_type,
+        warmup_steps=cfg.num_warmup_steps,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        gradient_checkpointing=cfg.gradient_checkpointing,
+        fp16=cfg.fp16,
+        bf16=cfg.bf16,
+        weight_decay=cfg.weight_decay,
+        run_name=f"santacoder-{cfg.subset}",
         report_to="mlflow",
     )
 
@@ -285,10 +284,10 @@ def run_training(args, train_data, val_data):
     trainer.train(resume_from_checkpoint=True)
 
     log.info("Saving last checkpoint of the model")
-    model.save_pretrained(os.path.join(args.output_dir, "final_checkpoint/"))
+    model.save_pretrained(os.path.join(cfg.output_dir, "final_checkpoint/"))
 
 
-def main(args):
+def main(args: FineTuningConfiguration):
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_auth_token=True)
 
     train_dataset, eval_dataset = create_datasets(tokenizer, args)
@@ -300,10 +299,10 @@ if __name__ == "__main__":
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
 
-    args = get_args()
-    set_seed(args.seed)
-    os.makedirs(args.output_dir, exist_ok=True)
+    cfg = jsonargparse.CLI(FineTuningConfiguration, as_positional=False)
+    set_seed(cfg.seed)
+    os.makedirs(cfg.output_dir, exist_ok=True)
 
     tflogging.set_verbosity_info()
 
-    main(args)
+    main(cfg)
