@@ -22,9 +22,11 @@ from transformers import (
     Trainer,
     TrainingArguments,
     logging as tflogging,
-    set_seed, PrinterCallback, TrainerState,
+    set_seed, PrinterCallback, TrainerState, WEIGHTS_NAME,
 )
 import peft
+from transformers.modeling_utils import unwrap_model
+from transformers.trainer import TRAINING_ARGS_NAME
 
 import fim
 
@@ -256,6 +258,41 @@ class LoggingCallback(PrinterCallback):
             log.info(f"Step {state.global_step}: {logs}")
 
 
+class LoraCompatibleTrainer(Trainer):
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        # NOTE: The code below is a copy of the original super-class implementation where the instance check
+        # for `PreTrainedModel` is replaced by a duck-typing-style check which simply checks for the
+        # presence of method `save_pretrained`, which will work for regular models as well as PEFT models.
+
+        def is_pretrained_model(m):
+            # return isinstance(m, PreTrainedModel)  # <- original implementation
+            return hasattr(m, "save_pretrained")
+
+        # If we are executing this function, we are the process zero, so we don't check for that.
+        output_dir = output_dir if output_dir is not None else self.args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        log.info(f"Saving model checkpoint to {output_dir}")
+        # Save a trained model and configuration using `save_pretrained()`.
+        # They can then be reloaded using `from_pretrained()`
+        if not is_pretrained_model(self.model):
+            if is_pretrained_model(unwrap_model(self.model)):
+                if state_dict is None:
+                    state_dict = self.model.state_dict()
+                unwrap_model(self.model).save_pretrained(output_dir, state_dict=state_dict)
+            else:
+                log.warning("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
+                if state_dict is None:
+                    state_dict = self.model.state_dict()
+                torch.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
+        else:
+            self.model.save_pretrained(output_dir, state_dict=state_dict)
+        if self.tokenizer is not None:
+            self.tokenizer.save_pretrained(output_dir)
+
+        # Good practice: save your training arguments together with the trained model
+        torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
+
+
 def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     log.info("Loading the model")
     # disable caching mechanism when using gradient checkpointing
@@ -308,7 +345,7 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
         disable_tqdm=True
     )
 
-    trainer = Trainer(
+    trainer = LoraCompatibleTrainer(
         model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data,
         callbacks=[LoggingCallback()]
     )
