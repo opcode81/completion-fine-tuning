@@ -292,6 +292,12 @@ class LoraCompatibleTrainer(Trainer):
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
+        # Addition for PeftModels in order to enable checkpoint resumption:
+        # If the state dict/weights have not been saved, save them now
+        weights_path = os.path.join(output_dir, WEIGHTS_NAME)
+        if not os.path.exists(weights_path):
+            torch.save(self.model.state_dict(), weights_path)
+
 
 def run_training(cfg: FineTuningConfiguration, train_data, val_data):
     log.info("Loading the model")
