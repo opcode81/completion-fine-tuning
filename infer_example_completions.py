@@ -85,29 +85,10 @@ def model_id_from_fn(model_fn: str):
 
 
 def get_model(model_path: str, base_model_id: str):
-    if os.path.isdir(model_path) and "-lora" in model_path:
+    if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "adapter_config.json")):
         base_model = AutoModelForCausalLM.from_pretrained(base_model_id, trust_remote_code=True)
-        adapter_config_path = os.path.join(model_path, "adapter_config.json")
-        if os.path.exists(adapter_config_path):
-            log.info(f"Loading PEFT model with adapter configuration from {adapter_config_path}")
-            return PeftModel.from_pretrained(base_model, model_path)
-        else:
-            # hack to support state-only checkpoints that were saved with LoRA-unaware trainer
-            r = int(re.search(r"-lora(\d+)", model_path).group(1))
-            peft_cfg = peft.LoraConfig(
-                target_modules=["kv_attn", "q_attn"],
-                task_type=TaskType.CAUSAL_LM,
-                inference_mode=True,
-                r=r,
-                lora_alpha=8,
-                lora_dropout=0.1,
-            )
-            log.warning(f"Loading PEFT model without adapter configuration: assuming LoRA configuration {peft_cfg} and "
-                f"injecting state dict")
-            model = peft.get_peft_model(base_model, peft_cfg)
-            state_dict = torch.load(os.path.join(model_path, 'pytorch_model.bin'))
-            model.load_state_dict(state_dict)
-            return model
+        log.info(f"Loading PEFT model from {model_path}")
+        return PeftModel.from_pretrained(base_model, model_path)
     return model_path
 
 
