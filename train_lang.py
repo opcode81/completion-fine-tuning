@@ -18,13 +18,15 @@ def run_finetuning_santacoder_thestack(lang_id,
         fim_spm_rate=0.5,
         resume_from_checkpoint: Optional[bool] = None,
         use_lora=False,
-        lora_r=32):
+        lora_r=32,
+        output_dir: Optional[str] = None):
 
     task_name = lang_id
     if use_lora:
         task_name += f"-lora{lora_r}"
 
-    output_dir = f"./checkpoints/{task_name}"
+    if output_dir is None:
+        output_dir = f"./checkpoints/{task_name}"
 
     # determine if we should resume from checkpoint (if unspecified)
     if resume_from_checkpoint is None:
