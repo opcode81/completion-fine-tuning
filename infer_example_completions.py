@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Dict, List
 import re
 
+import peft
 import torch
+from peft import PeftModel, TaskType
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
 log = logging.getLogger(__name__)
@@ -82,6 +84,33 @@ def model_id_from_fn(model_fn: str):
     return model_fn.replace("--", "/")
 
 
+def get_model(model_path: str, base_model_id: str):
+    if os.path.isdir(model_path) and "-lora" in model_path:
+        base_model = AutoModelForCausalLM.from_pretrained(base_model_id, trust_remote_code=True)
+        adapter_config_path = os.path.join(model_path, "adapter_config.json")
+        if os.path.exists(adapter_config_path):
+            log.info(f"Loading PEFT model with adapter configuration from {adapter_config_path}")
+            return PeftModel.from_pretrained(base_model, model_path)
+        else:
+            # hack to support state-only checkpoints that were saved with LoRA-unaware trainer
+            r = int(re.search(r"-lora(\d+)", model_path).group(1))
+            peft_cfg = peft.LoraConfig(
+                target_modules=["kv_attn", "q_attn"],
+                task_type=TaskType.CAUSAL_LM,
+                inference_mode=True,
+                r=r,
+                lora_alpha=8,
+                lora_dropout=0.1,
+            )
+            log.warning(f"Loading PEFT model without adapter configuration: assuming LoRA configuration {peft_cfg} and "
+                f"injecting state dict")
+            model = peft.get_peft_model(base_model, peft_cfg)
+            state_dict = torch.load(os.path.join(model_path, 'pytorch_model.bin'))
+            model.load_state_dict(state_dict)
+            return model
+    return model_path
+
+
 def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder", save_results=True):
     tasks = read_completion_tasks(lang_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
@@ -94,7 +123,8 @@ def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode
     for model_id in models:
 
         log.info(f"Loading model {model_id}")
-        pipe = pipeline("text-generation", model=model_id, max_new_tokens=256, device=device,
+        model = get_model(model_id, base_model_id)
+        pipe = pipeline("text-generation", model=model, max_new_tokens=256, device=device,
             torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
         for task_name, task in tasks.items():
@@ -121,6 +151,6 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    # run(models=["checkpoints/checkpoint-550", "bigcode/santacoder"], lang_id="ruby")
-    run(models=["bigcode/santacoder"], lang_id="c-sharp")
+    run(models=["checkpoints/ruby-lora8/checkpoint-4500", "checkpoints/ruby/checkpoint-5000", "bigcode/santacoder"], lang_id="ruby")
+    # run(models=["bigcode/santacoder"], lang_id="c-sharp")
     log.info("Done")
