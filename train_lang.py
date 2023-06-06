@@ -2,6 +2,7 @@ import logging
 import multiprocessing
 import os
 import sys
+from glob import glob
 from typing import Optional
 
 from train import FineTuningConfiguration, main
@@ -30,17 +31,12 @@ def run_finetuning_santacoder_thestack(lang_id,
 
     # determine if we should resume from checkpoint (if unspecified)
     if resume_from_checkpoint is None:
-        checkpoints_exist = False
-        if os.path.isdir(output_dir):
-            for fn in os.listdir(output_dir):
-                if fn.startswith("checkpoint-") and os.path.isdir(fn):
-                    checkpoints_exist = True
-                    break
-        resume_from_checkpoint = checkpoints_exist
+        checkpoints_exist = len(glob(os.path.join(output_dir, "checkpoint-*"))) > 0
         if checkpoints_exist:
             log.info("Found at least one checkpoint, so resuming from checkpoint")
         else:
             log.info(f"No checkpoints found in {output_dir}, will train without resuming from checkpoint")
+        resume_from_checkpoint = checkpoints_exist
 
     # Create configuration that works for bigcode/santacoder on the aai VMs (8 Cores, V100 w/ 32 GB VRAM)
     # NOTE: effective batch size is num_workers * batch_size
