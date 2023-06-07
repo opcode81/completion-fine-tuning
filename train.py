@@ -348,7 +348,8 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
         weight_decay=cfg.weight_decay,
         run_name=run_name,
         report_to=["mlflow"],
-        disable_tqdm=True
+        disable_tqdm=True,
+        logging_nan_inf_filter=False,
     )
 
     trainer = LoraCompatibleTrainer(
