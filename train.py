@@ -365,6 +365,8 @@ def run_training(cfg: FineTuningConfiguration, train_data, val_data):
 
 
 def main(cfg: FineTuningConfiguration):
+    log.info(f"Running with {cfg}")
+
     set_seed(cfg.seed)
     os.makedirs(cfg.output_dir, exist_ok=True)
 
