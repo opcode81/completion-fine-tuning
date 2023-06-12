@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Dict, List
 import re
 
+import peft
 import torch
+from peft import PeftModel, TaskType
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
 log = logging.getLogger(__name__)
@@ -82,6 +84,15 @@ def model_id_from_fn(model_fn: str):
     return model_fn.replace("--", "/")
 
 
+def get_model(model_path: str, base_model_id: str):
+    if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "adapter_config.json")):
+        base_model = AutoModelForCausalLM.from_pretrained(base_model_id, trust_remote_code=True)
+        log.info(f"Loading PEFT model from {model_path}")
+        return PeftModel.from_pretrained(base_model, model_path)
+    else:
+        return AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+
+
 def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder", save_results=True):
     tasks = read_completion_tasks(lang_id)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
@@ -94,7 +105,8 @@ def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode
     for model_id in models:
 
         log.info(f"Loading model {model_id}")
-        pipe = pipeline("text-generation", model=model_id, max_new_tokens=256, device=device,
+        model = get_model(model_id, base_model_id)
+        pipe = pipeline("text-generation", model=model, max_new_tokens=256, device=device,
             torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
         for task_name, task in tasks.items():
