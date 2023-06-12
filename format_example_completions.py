@@ -3,7 +3,8 @@ import os
 import sys
 from pathlib import Path
 
-from infer_example_completions import model_id_from_fn, TAG_COMPLETION_PLACEHOLDER
+from completionft.completion_task import TAG_COMPLETION_PLACEHOLDER
+from completionft.model import model_id_from_fn
 
 log = logging.getLogger(__name__)
 
