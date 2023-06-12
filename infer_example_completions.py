@@ -66,56 +66,71 @@ class CompletionTask:
         return self.prefix + TAG_COMPLETION_PLACEHOLDER + self.suffix
 
 
-def read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
-    tasks = {}
-    root = Path("data") / "completion-tasks" / lang_id
-    for fn in os.listdir(root):
-        with open(root / fn, "r") as f:
-            code = f.read()
-            tasks[fn] = CompletionTask.from_code_with_todo_tag(code, lang_id)
-    return tasks
+class CompletionTaskModelComparison:
+    def __init__(self, lang_id: str, models: List[str], device="cuda:0", base_model_id="bigcode/santacoder"):
+        """
+        :param lang_id: the language id for which to load the completion tasks
+        :param models: the list of model names/paths
+        :param device: the torch device to use
+        :param base_model_id: the name/identifier of the base model
+        """
+        self.lang_id = lang_id
+        self.completion_tasks = self._read_completion_tasks(lang_id)
+        self.base_model_id = base_model_id
+        self.device = device
+        self.models = models
 
+    @staticmethod
+    def _read_completion_tasks(lang_id) -> Dict[str, CompletionTask]:
+        tasks = {}
+        root = Path("data") / "completion-tasks" / lang_id
+        for fn in os.listdir(root):
+            with open(root / fn, "r") as f:
+                code = f.read()
+                tasks[fn] = CompletionTask.from_code_with_todo_tag(code, lang_id)
+        return tasks
 
-def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder", save_results=True):
-    tasks = read_completion_tasks(lang_id)
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
+    def run(self, save_results=True):
+        tasks = self.completion_tasks
+        tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, trust_remote_code=True)
 
-    def result_dir(task_name):
-        outdir = Path("results") / "completion-tasks" / lang_id / task_name
-        outdir.mkdir(parents=True, exist_ok=True)
-        return outdir
+        def result_dir(task_name):
+            outdir = Path("results") / "completion-tasks" / self.lang_id / task_name
+            outdir.mkdir(parents=True, exist_ok=True)
+            return outdir
 
-    for model_id in models:
+        for model_id in self.models:
 
-        log.info(f"Loading model {model_id}")
-        model = get_model(model_id, base_model_id)
-        pipe = pipeline("text-generation", model=model, max_new_tokens=256, device=device,
-            torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
+            log.info(f"Loading model {model_id}")
+            model = get_model(model_id, self.base_model_id)
+            pipe = pipeline("text-generation", model=model, max_new_tokens=256, device=self.device,
+                torch_dtype=torch.bfloat16, trust_remote_code=True, tokenizer=tokenizer)
 
-        for task_name, task in tasks.items():
-            ext = os.path.splitext(task_name)[1]
-            if save_results:
-                with open(result_dir(task_name) / f"task{ext}", 'w') as f:
-                    f.write(task.code_with_todo_tag())
+            for task_name, task in tasks.items():
+                ext = os.path.splitext(task_name)[1]
+                if save_results:
+                    with open(result_dir(task_name) / f"task{ext}", 'w') as f:
+                        f.write(task.code_with_todo_tag())
 
-            log.info(f"Querying {model_id} for completion {task_name}")
-            prompt = task.fim_prompt()
-            response = pipe(prompt)[0]["generated_text"]
-            task.apply_completion(response)
-            log.info(f"Completion for {task_name} by {model_id}:\n{task.full_code()}")
+                log.info(f"Querying {model_id} for completion {task_name}")
+                prompt = task.fim_prompt()
+                response = pipe(prompt)[0]["generated_text"]
+                task.apply_completion(response)
+                log.info(f"Completion for {task_name} by {model_id}:\n{task.full_code()}")
 
-            if save_results:
-                fn = model_id_to_fn(model_id) + ext
-                with open(result_dir(task_name) / fn, 'w') as f:
-                    f.write(task.full_code())
+                if save_results:
+                    fn = model_id_to_fn(model_id) + ext
+                    with open(result_dir(task_name) / fn, 'w') as f:
+                        f.write(task.full_code())
 
-        del pipe
+            del model
+            del pipe
 
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     log.info("Starting")
-    run(models=["checkpoints/checkpoint-6000", "checkpoints/checkpoint-500", "bigcode/santacoder"], lang_id="ruby")
-    # run(models=["bigcode/santacoder"], lang_id="c-sharp")
+    CompletionTaskModelComparison("ruby", models=["checkpoints/checkpoint-6000", "checkpoints/checkpoint-500", "bigcode/santacoder"])
+    #CompletionTaskModelComparison("c-sharp", models=["bigcode/santacoder"])
     log.info("Done")
