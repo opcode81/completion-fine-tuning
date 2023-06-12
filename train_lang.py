@@ -5,7 +5,7 @@ import sys
 from glob import glob
 from typing import Optional
 
-from train import FineTuningConfiguration, main
+from train import FineTuningConfiguration, CompletionFineTuning
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def run_finetuning_santacoder_thestack(lang_id,
         lora_r=lora_r,
         lora_target_modules=["kv_attn", "q_attn"])
 
-    main(cfg)
+    CompletionFineTuning(cfg).run()
 
 
 if __name__ == '__main__':

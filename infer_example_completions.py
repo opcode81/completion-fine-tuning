@@ -1,13 +1,12 @@
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List
-import re
 
-import peft
 import torch
-from peft import PeftModel, TaskType
+from peft import PeftModel
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
 log = logging.getLogger(__name__)

@@ -9,9 +9,9 @@ import sys
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 
-import datasets.arrow_dataset
 import jsonargparse
 import numpy as np
+import peft
 import torch
 from datasets import load_dataset, Dataset
 from peft import TaskType
@@ -25,7 +25,6 @@ from transformers import (
     logging as tflogging,
     set_seed, PrinterCallback, TrainerState, WEIGHTS_NAME,
 )
-import peft
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer import TRAINING_ARGS_NAME
 
@@ -100,7 +99,6 @@ class ConstantLengthDataset(IterableDataset):
             fim_spm_rate (float): Rate (0.0 to 1.0) of FIM permuations that will use SPM.
             seed (int): Seed for random number generator.
     """
-
     def __init__(
         self,
         cfg: FineTuningConfiguration,
@@ -201,7 +199,6 @@ class ConstantLengthDataset(IterableDataset):
                     }
 
 
-
 def load_train_val_datasets(dataset_name, data_dir, split="train", size_valid_set=4000, streaming=False, seed=0,
         shuffle_buffer=5000, num_workers=None) -> Tuple[Dataset, Dataset]:
     dataset = load_dataset(
@@ -225,42 +222,6 @@ def load_train_val_datasets(dataset_name, data_dir, split="train", size_valid_se
         train_data = dataset["train"]
         valid_data = dataset["test"]
     return train_data, valid_data
-
-
-def create_datasets(tokenizer, cfg: FineTuningConfiguration):
-    train_data, valid_data = load_train_val_datasets(cfg.dataset_name, cfg.subset, split=cfg.split,
-        streaming=cfg.streaming, seed=cfg.seed, shuffle_buffer=cfg.shuffle_buffer, num_workers=cfg.num_workers,
-        size_valid_set=cfg.size_valid_set)
-    if not cfg.streaming:
-        log.info(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
-    chars_per_token = chars_token_ratio(train_data, tokenizer, cfg.data_column)
-    log.info(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
-    train_dataset = ConstantLengthDataset(
-        cfg,
-        tokenizer,
-        train_data,
-        infinite=True,
-        seq_length=cfg.seq_length,
-        chars_per_token=chars_per_token,
-        content_field=cfg.data_column,
-        fim_rate=cfg.fim_rate,
-        fim_spm_rate=cfg.fim_spm_rate,
-        seed=cfg.seed,
-    )
-    valid_dataset = ConstantLengthDataset(
-        cfg,
-        tokenizer,
-        valid_data,
-        infinite=False,
-        seq_length=cfg.seq_length,
-        chars_per_token=chars_per_token,
-        content_field=cfg.data_column,
-        fim_rate=cfg.fim_rate,
-        fim_spm_rate=cfg.fim_spm_rate,
-        seed=cfg.seed,
-    )
-
-    return train_dataset, valid_dataset
 
 
 class LoggingCallback(PrinterCallback):
@@ -311,88 +272,123 @@ class LoraCompatibleTrainer(Trainer):
             torch.save(self.model.state_dict(), weights_path)
 
 
-def run_training(cfg: FineTuningConfiguration, train_data, val_data):
-    log.info("Loading the model")
-    # disable caching mechanism when using gradient checkpointing
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.model_path,
-        trust_remote_code=True,
-        use_cache=not cfg.gradient_checkpointing,
-    )
-    train_data.start_iteration = 0
+class CompletionFineTuning:
+    def __init__(self, cfg: FineTuningConfiguration):
+        self.cfg = cfg
 
-    run_name = f"santacoder-{cfg.subset}"
-
-    if cfg.use_lora:
-        run_name += "-lora"
-        peft_cfg = peft.LoraConfig(
-            target_modules=cfg.lora_target_modules,
-            task_type=TaskType.CAUSAL_LM,
-            inference_mode=False,
-            r=cfg.lora_r,
-            lora_alpha=cfg.lora_alpha,
-            lora_dropout=cfg.lora_dropout,
+    def create_datasets(self, tokenizer):
+        cfg = self.cfg
+        train_data, valid_data = load_train_val_datasets(cfg.dataset_name, cfg.subset, split=cfg.split,
+            streaming=cfg.streaming, seed=cfg.seed, shuffle_buffer=cfg.shuffle_buffer, num_workers=cfg.num_workers,
+            size_valid_set=cfg.size_valid_set)
+        if not cfg.streaming:
+            log.info(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
+        chars_per_token = chars_token_ratio(train_data, tokenizer, cfg.data_column)
+        log.info(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
+        train_dataset = ConstantLengthDataset(
+            cfg,
+            tokenizer,
+            train_data,
+            infinite=True,
+            seq_length=cfg.seq_length,
+            chars_per_token=chars_per_token,
+            content_field=cfg.data_column,
+            fim_rate=cfg.fim_rate,
+            fim_spm_rate=cfg.fim_spm_rate,
+            seed=cfg.seed,
         )
-        model = peft.get_peft_model(model, peft_cfg)
-        model.print_trainable_parameters()
+        valid_dataset = ConstantLengthDataset(
+            cfg,
+            tokenizer,
+            valid_data,
+            infinite=False,
+            seq_length=cfg.seq_length,
+            chars_per_token=chars_per_token,
+            content_field=cfg.data_column,
+            fim_rate=cfg.fim_rate,
+            fim_spm_rate=cfg.fim_spm_rate,
+            seed=cfg.seed,
+        )
 
-    log.info(f"Starting main loop")
+        return train_dataset, valid_dataset
 
-    training_args = TrainingArguments(
-        output_dir=cfg.output_dir,
-        dataloader_drop_last=True,
-        evaluation_strategy="steps",
-        max_steps=cfg.max_steps,
-        eval_steps=cfg.eval_freq,
-        save_steps=cfg.save_freq,
-        save_total_limit=None,
-        logging_steps=cfg.log_freq,
-        log_level="debug",
-        per_device_train_batch_size=cfg.batch_size,
-        per_device_eval_batch_size=cfg.batch_size,
-        learning_rate=cfg.learning_rate,
-        lr_scheduler_type=cfg.lr_scheduler_type,
-        warmup_steps=cfg.num_warmup_steps,
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
-        gradient_checkpointing=cfg.gradient_checkpointing,
-        fp16=cfg.fp16,
-        bf16=cfg.bf16,
-        weight_decay=cfg.weight_decay,
-        run_name=run_name,
-        report_to=["mlflow"],
-        disable_tqdm=True,
-        logging_nan_inf_filter=False,
-    )
+    def run(self):
+        cfg = self.cfg
+        log.info(f"Running with {cfg}")
 
-    trainer = LoraCompatibleTrainer(
-        model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data,
-        callbacks=[LoggingCallback()]
-    )
+        set_seed(cfg.seed)
+        os.makedirs(cfg.output_dir, exist_ok=True)
 
-    log.info("Training...")
-    trainer.train(resume_from_checkpoint=cfg.resume_from_checkpoint)
+        tflogging.set_verbosity_info()
 
-    log.info("Saving last checkpoint of the model")
-    model.save_pretrained(os.path.join(cfg.output_dir, "final_checkpoint/"))
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model_path, use_auth_token=True)
 
+        train_data, val_data = self.create_datasets(tokenizer)
 
-def main(cfg: FineTuningConfiguration):
-    log.info(f"Running with {cfg}")
+        log.info("Loading the model")
+        # disable caching mechanism when using gradient checkpointing
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.model_path,
+            trust_remote_code=True,
+            use_cache=not cfg.gradient_checkpointing,
+        )
+        train_data.start_iteration = 0
 
-    set_seed(cfg.seed)
-    os.makedirs(cfg.output_dir, exist_ok=True)
+        run_name = f"santacoder-{cfg.subset}"
 
-    tflogging.set_verbosity_info()
+        if cfg.use_lora:
+            run_name += "-lora"
+            peft_cfg = peft.LoraConfig(
+                target_modules=cfg.lora_target_modules,
+                task_type=TaskType.CAUSAL_LM,
+                inference_mode=False,
+                r=cfg.lora_r,
+                lora_alpha=cfg.lora_alpha,
+                lora_dropout=cfg.lora_dropout,
+            )
+            model = peft.get_peft_model(model, peft_cfg)
+            model.print_trainable_parameters()
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model_path, use_auth_token=True)
+        training_args = TrainingArguments(
+            output_dir=cfg.output_dir,
+            dataloader_drop_last=True,
+            evaluation_strategy="steps",
+            max_steps=cfg.max_steps,
+            eval_steps=cfg.eval_freq,
+            save_steps=cfg.save_freq,
+            save_total_limit=None,
+            logging_steps=cfg.log_freq,
+            log_level="debug",
+            per_device_train_batch_size=cfg.batch_size,
+            per_device_eval_batch_size=cfg.batch_size,
+            learning_rate=cfg.learning_rate,
+            lr_scheduler_type=cfg.lr_scheduler_type,
+            warmup_steps=cfg.num_warmup_steps,
+            gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+            gradient_checkpointing=cfg.gradient_checkpointing,
+            fp16=cfg.fp16,
+            bf16=cfg.bf16,
+            weight_decay=cfg.weight_decay,
+            run_name=run_name,
+            report_to=["mlflow"],
+            disable_tqdm=True,
+            logging_nan_inf_filter=False,
+        )
 
-    train_dataset, eval_dataset = create_datasets(tokenizer, cfg)
+        trainer = LoraCompatibleTrainer(
+            model=model, args=training_args, train_dataset=train_data, eval_dataset=val_data,
+            callbacks=[LoggingCallback()]
+        )
 
-    run_training(cfg, train_dataset, eval_dataset)
+        log.info("Training...")
+        trainer.train(resume_from_checkpoint=cfg.resume_from_checkpoint)
+
+        log.info("Saving last checkpoint of the model")
+        model.save_pretrained(os.path.join(cfg.output_dir, "final_checkpoint/"))
 
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(levelname)-5s %(asctime)-15s %(name)s:%(funcName)s - %(message)s', stream=sys.stdout,
         level=logging.INFO)
     cfg = jsonargparse.CLI(FineTuningConfiguration, as_positional=False)
-    main(cfg)
+    CompletionFineTuning(cfg).run()
