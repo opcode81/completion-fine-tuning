@@ -7,12 +7,13 @@ import os
 import random
 import sys
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
+import datasets.arrow_dataset
 import jsonargparse
 import numpy as np
 import torch
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from peft import TaskType
 from torch.utils.data import IterableDataset
 from tqdm import tqdm
@@ -200,27 +201,38 @@ class ConstantLengthDataset(IterableDataset):
                     }
 
 
-def create_datasets(tokenizer, cfg: FineTuningConfiguration):
+
+def load_train_val_datasets(dataset_name, data_dir, split="train", size_valid_set=4000, streaming=False, seed=0,
+        shuffle_buffer=5000, num_workers=None) -> Tuple[Dataset, Dataset]:
     dataset = load_dataset(
-        cfg.dataset_name,
-        data_dir=cfg.subset,
-        split=cfg.split,
+        dataset_name,
+        data_dir=data_dir,
+        split=split,
         use_auth_token=True,
-        num_proc=cfg.num_workers if not cfg.streaming else None,
-        streaming=cfg.streaming,
+        num_proc=num_workers if not streaming else None,
+        streaming=streaming,
     )
-    if cfg.streaming:
-        print("Loading the dataset in streaming mode")
-        valid_data = dataset.take(cfg.size_valid_set)
-        train_data = dataset.skip(cfg.size_valid_set)
-        train_data = train_data.shuffle(buffer_size=cfg.shuffle_buffer, seed=cfg.seed)
+    if streaming:
+        log.info("Loading the dataset in streaming mode")
+        valid_data = dataset.take(size_valid_set)
+        train_data = dataset.skip(size_valid_set)
+        train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=seed)
     else:
-        dataset = dataset.train_test_split(test_size=0.005, seed=cfg.seed)
+        # TODO: This should actually use size_valid_set, but all models were trained with this parametrisation
+        # and we need to retain this (for now) in order for the evaluation, which uses the same split,
+        # to be sound
+        dataset = dataset.train_test_split(test_size=0.005, seed=seed)
         train_data = dataset["train"]
         valid_data = dataset["test"]
-        print(
-            f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}"
-        )
+    return train_data, valid_data
+
+
+def create_datasets(tokenizer, cfg: FineTuningConfiguration):
+    train_data, valid_data = load_train_val_datasets(cfg.dataset_name, cfg.subset, split=cfg.split,
+        streaming=cfg.streaming, seed=cfg.seed, shuffle_buffer=cfg.shuffle_buffer, num_workers=cfg.num_workers,
+        size_valid_set=cfg.size_valid_set)
+    if not cfg.streaming:
+        log.info(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
     chars_per_token = chars_token_ratio(train_data, tokenizer, cfg.data_column)
     log.info(f"The character to token ratio of the dataset is: {chars_per_token:.2f}")
     train_dataset = ConstantLengthDataset(

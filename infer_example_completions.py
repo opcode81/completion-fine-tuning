@@ -89,7 +89,8 @@ def get_model(model_path: str, base_model_id: str):
         base_model = AutoModelForCausalLM.from_pretrained(base_model_id, trust_remote_code=True)
         log.info(f"Loading PEFT model from {model_path}")
         return PeftModel.from_pretrained(base_model, model_path)
-    return model_path
+    else:
+        return AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
 
 
 def run(models: List[str], lang_id: str, device="cuda:0", base_model_id="bigcode/santacoder", save_results=True):
