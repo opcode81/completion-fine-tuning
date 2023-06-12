@@ -20,6 +20,7 @@ def run_finetuning_santacoder_thestack(lang_id,
         resume_from_checkpoint: Optional[bool] = None,
         use_lora=False,
         lora_r=32,
+        fp16=True,
         output_dir: Optional[str] = None):
 
     task_name = lang_id
@@ -71,6 +72,7 @@ def run_finetuning_santacoder_thestack(lang_id,
         output_dir=output_dir,
         resume_from_checkpoint= resume_from_checkpoint,
         gradient_checkpointing=gradient_checkpointing,
+        fp16=fp16,
         use_lora=use_lora,
         lora_r=lora_r,
         lora_target_modules=["kv_attn", "q_attn"])
