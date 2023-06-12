@@ -5,7 +5,7 @@ import sys
 from glob import glob
 from typing import Optional
 
-from train import FineTuningConfiguration, CompletionFineTuning
+from completionft.finetuning import FineTuningConfiguration, CompletionFineTuning
 
 log = logging.getLogger(__name__)
 
