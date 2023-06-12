@@ -8,8 +8,8 @@ import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
+from completionft.dataset import load_train_val_datasets
 from infer_example_completions import get_model
-from train import load_train_val_datasets
 
 log = logging.getLogger(__name__)
 
