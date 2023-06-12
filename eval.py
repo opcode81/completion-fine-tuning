@@ -76,7 +76,7 @@ class ModelEvaluation:
             del model
 
         df = pd.DataFrame(rows)
-        df.sort_values("ppl", ascending=False, inplace=True)
+        df.sort_values("ppl", ascending=True, inplace=True)
         log.info(f"Results:\n{df.to_string()}")
 
 
