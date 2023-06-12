@@ -1,7 +1,7 @@
 import logging
 import sys
 
-from completionft.completion_task import CompletionTaskModelComparison
+from completionft.completion_model_comparison import CompletionTaskModelComparison
 from completionft.model import SantaCoderModelFactory
 
 log = logging.getLogger(__name__)
