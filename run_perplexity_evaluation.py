@@ -18,6 +18,18 @@ if __name__ == '__main__':
         "checkpoints/ruby/checkpoint-500",
         "checkpoints/ruby/checkpoint-1000",
         "checkpoints/ruby/checkpoint-2000",
+        "checkpoints/ruby/checkpoint-6000",
         "bigcode/santacoder"
     ]
-    ModelPerplexityEvaluation("ruby", model_factory, ruby_models).run()
+    csharp_models = [
+        "checkpoints/c-sharp/checkpoint-1000",
+        "checkpoints/c-sharp/checkpoint-2000",
+        "checkpoints/c-sharp/checkpoint-3000",
+        "checkpoints/c-sharp/checkpoint-4000",
+        "bigcode/santacoder"
+    ]
+    rust_models = [
+        "bigcode/santacoder"
+    ]
+    # ModelPerplexityEvaluation("ruby", model_factory, ruby_models).run()
+    ModelPerplexityEvaluation("c-sharp", model_factory, csharp_models).run()
