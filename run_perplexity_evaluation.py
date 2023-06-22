@@ -29,7 +29,9 @@ if __name__ == '__main__':
         "bigcode/santacoder"
     ]
     rust_models = [
+        "checkpoints/rust/checkpoint-30000",
         "bigcode/santacoder"
     ]
     # ModelPerplexityEvaluation("ruby", model_factory, ruby_models).run()
-    ModelPerplexityEvaluation("c-sharp", model_factory, csharp_models).run()
+    # ModelPerplexityEvaluation("c-sharp", model_factory, csharp_models).run()
+    ModelPerplexityEvaluation("rust", model_factory, rust_models).run()
