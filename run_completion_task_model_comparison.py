@@ -12,11 +12,25 @@ if __name__ == '__main__':
         level=logging.INFO)
     log.info("Starting")
     model_factory = SantaCoderModelFactory()
-    ruby_models = [
+
+    general_models = ["bigcode/santacoder"]
+    ruby_models = general_models + [
         "checkpoints/ruby/checkpoint-6000",
-        "checkpoints/ruby/checkpoint-500",
-        "bigcode/santacoder"
+        "checkpoints/ruby/checkpoint-500"
     ]
-    CompletionTaskModelComparison("ruby", model_factory, model_paths=ruby_models).run()
-    #CompletionTaskModelComparison("c-sharp", model_factory, models=["bigcode/santacoder"]).run()
+    c_sharp_models = general_models + [
+        "checkpoints/c-sharp/checkpoint-1000",
+        "checkpoints/c-sharp/checkpoint-2000",
+        "checkpoints/c-sharp/checkpoint-3000",
+        "checkpoints/c-sharp/checkpoint-4000"
+    ]
+    rust_models = general_models + [
+        "checkpoints/rust/checkpoint-30000"
+    ]
+
+    #CompletionTaskModelComparison("ruby", model_factory, model_paths=ruby_models).run()
+    #CompletionTaskModelComparison("c-sharp", model_factory, model_paths=c_sharp_models).run()
+    CompletionTaskModelComparison("rust", model_factory, model_paths=rust_models).run()
+    #CompletionTaskModelComparison("scala", model_factory, model_paths=general_models).run()
+
     log.info("Done")
