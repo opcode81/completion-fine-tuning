@@ -39,8 +39,7 @@ def run_finetuning_santacoder_thestack(lang_id,
             log.info(f"No checkpoints found in {output_dir}, will train without resuming from checkpoint")
         resume_from_checkpoint = checkpoints_exist
 
-    # Create configuration that works for bigcode/santacoder on the aai VMs (8 Cores, V100 w/ 32 GB VRAM)
-    # NOTE: effective batch size is num_workers * batch_size
+    # Create configuration that works for bigcode/santacoder on the aai VMs (V100 w/ 32 GB VRAM)
     if use_lora:
         # When using LoRA, gradient checkpointing cannot be used because of this issue:
         # https://github.com/huggingface/transformers/issues/23170
